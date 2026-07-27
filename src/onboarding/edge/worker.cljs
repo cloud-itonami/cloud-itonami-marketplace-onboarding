@@ -42,6 +42,28 @@
    :ledger!     store/append-ledger!
    :hold-fact   governor/hold-fact})
 
+(def ^:private default-issuer
+  "Who this deployment issues credentials AS.
+
+  A credential is only worth what its issuer is worth —
+  `marketplace.seller/sellable?` checks a credential against an expected
+  issuer, so a deployment issuing under someone else's DID would be
+  minting credentials nobody should honour. Overridable per request
+  because a fork is a different issuer."
+  "did:web:marketplace.cloud-itonami.example")
+
+(defn- plus-year
+  "Default credential validity: one year.
+
+  A default, not a rule. How long an identity check stays good is a
+  jurisdiction- and risk-specific operator decision, so the request may
+  name any window; what the host must not do is leave the field blank
+  and let a credential with no expiry into the ref."
+  [iso]
+  (let [d (js/Date. iso)]
+    (.setUTCFullYear d (inc (.getUTCFullYear d)))
+    (.toISOString d)))
+
 (defn- ctx [body]
   {:actor-id "onboarding-edge"
    :phase (get body "phase" 3)
@@ -129,7 +151,67 @@
                                         {:op :propose-credential :applicant-id aid :ref aid
                                          :patch {:applicant a
                                                  :seller-id (:seller-id a)
+                                                 :issuer (get body "issuer" default-issuer)
+                                                 :issued-at (get body "issued-at"
+                                                                 (get body "now" "2026-06-01T00:00:00Z"))
+                                                 :expires-at (or (get body "expires-at")
+                                                                 (plus-year (get body "now" "2026-06-01T00:00:00Z")))
                                                  :confidence (get body "confidence" 0.9)}}))))))))
+
+(defn- approve
+  "A named human approves the drafted credential, and only then is one
+  issued.
+
+  This mirrors `onboarding.operation`'s `:request-approval` node rather
+  than inventing a second path: the governor is re-run against the
+  CURRENT stored applicant, so an approval cannot be replayed against a
+  record that has since changed, and the approver's name is written into
+  the committed payload where the ledger keeps it.
+
+  A blank approver is refused: an approval attributed to nobody is how
+  an audit trail becomes decorative."
+  [client body]
+  (let [aid (get body "applicant-id")
+        by (get body "approved-by")]
+    (if (or (nil? by) (= "" (str by)))
+      (js/Promise.resolve {:ref aid :disposition "hold"
+                           :violations ["no-named-approver"]})
+      (edge/with-store
+        {:client client :wants {:applicant [aid] :credential :all}
+         :store-fn store/kotobase-store}
+        (fn [st]
+          (let [a (store/applicant-record st aid)]
+            (if-not a
+              {:ref aid :disposition "hold" :violations ["applicant-unknown"]}
+              (let [req {:op :propose-credential :applicant-id aid :ref aid
+                         :patch {:applicant a
+                                 :seller-id (:seller-id a)
+                                 :issuer (get body "issuer" default-issuer)
+                                 :issued-at (get body "issued-at"
+                                                 (get body "now" "2026-06-01T00:00:00Z"))
+                                 :expires-at (or (get body "expires-at")
+                                                 (plus-year (get body "now" "2026-06-01T00:00:00Z")))
+                                 :confidence (get body "confidence" 0.9)}}
+                    c (ctx body)
+                    proposal (advisor/-advise (advisor/mock-advisor) st req)
+                    verdict (governor/check req c proposal st)]
+                (if (:hard? verdict)
+                  ;; The governor still wins. An approver may release
+                  ;; something the phase gate held; they may never
+                  ;; release something compliance refused.
+                  (do (store/append-ledger! st (governor/hold-fact req c verdict))
+                      {:ref aid :disposition "hold"
+                       :violations (mapv (comp name :rule) (:violations verdict))})
+                  (do (store/commit-record!
+                       st {:op :propose-credential :applicant-id aid
+                           :value (:value proposal)
+                           :payload (assoc (:value proposal) :approved-by by)})
+                      (store/append-ledger! st {:t :approval-granted
+                                                :op :propose-credential
+                                                :applicant-id aid :by by})
+                      {:ref aid :disposition "commit" :violations []
+                       :approved-by by
+                       :seller-id (get-in proposal [:value :credential :seller/id])}))))))))))
 
 ;; ───────────────────────── routes ─────────────────────────
 
@@ -140,6 +222,13 @@
       (js/Promise.resolve (edge/json {:error "unauthorised"} 401))
       (-> (.json request)
           (.then #(register-applicant client (js->clj %)))
+          (.then #(edge/json % 200))))
+
+    (and (= method "POST") (= path "/approve"))
+    (if-not (edge/authorised? request env)
+      (js/Promise.resolve (edge/json {:error "unauthorised"} 401))
+      (-> (.json request)
+          (.then #(approve client (js->clj %)))
           (.then #(edge/json % 200))))
 
     (and (= method "POST") (= path "/admit"))
