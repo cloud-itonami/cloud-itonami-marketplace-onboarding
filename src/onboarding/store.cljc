@@ -18,7 +18,8 @@
 
   The ledger stays append-only: which applicant a proposal targeted,
   which operation, on what basis, committed/held/escalated and approved
-  by whom is always a query over an immutable log.")
+  by whom is always a query over an immutable log."
+  (:require [marketplace.persist :as persist]))
 
 (defprotocol Store
   (applicant-record [s applicant-id]
@@ -34,6 +35,7 @@
   (commit-record! [s record] "apply a committed proposal's record to the SSoT")
   (append-ledger! [s fact] "append one immutable decision fact")
   (with-applicant-records [s applicants])
+  (durable? [s] "False for the test-only memory backend.")
   (with-credential-records [s credentials]))
 
 ;; ----------------------------- demo data -----------------------------
@@ -98,6 +100,7 @@
   (all-applicant-records [_] (sort-by :applicant-id (vals (:applicants @a))))
   (credential-record [_ id] (get-in @a [:credentials id]))
   (all-credential-records [_] (sort-by :seller/id (vals (:credentials @a))))
+  (durable? [_] false)
   (ledger [_] (:ledger @a))
   (onboarding-log [_] (:onboarding-log @a))
   (commit-record! [_ record]
@@ -127,3 +130,49 @@
    (->MemStore (atom {:applicants (or applicants {})
                       :credentials (or credentials {})
                       :ledger [] :onboarding-log []}))))
+
+;; ----------------------------- durable store -----------------------------
+
+(defrecord KotobaseStore [st seed]
+  Store
+  (applicant-record [_ id] (persist/get-doc (persist/ctx st :applicant :applicant-id) id))
+  (all-applicant-records [_] (persist/all-docs (persist/ctx st :applicant :applicant-id)))
+  (credential-record [_ id] (persist/get-doc (persist/ctx st :credential :seller/id) id))
+  (all-credential-records [_] (persist/all-docs (persist/ctx st :credential :seller/id)))
+  (durable? [_] (not (:persist/memory? st)))
+  (ledger [_] (persist/read-events (persist/stream-ctx st :ledger)))
+  (onboarding-log [_] (persist/read-events (persist/stream-ctx st :onboarding-log)))
+  (commit-record! [_ record]
+    (persist/append-event! (persist/stream-ctx st :onboarding-log) seed record)
+    ;; Same invariant as MemStore: issuing an identity is never a side
+    ;; effect of a lesser op, so only an approved :propose-credential
+    ;; writes the credential directory.
+    (when-let [c (and (= :propose-credential (:op record))
+                      (get-in record [:value :credential]))]
+      (persist/put-doc! (persist/ctx st :credential :seller/id) c))
+    record)
+  (append-ledger! [_ fact]
+    (persist/append-event! (persist/stream-ctx st :ledger) seed fact))
+  (with-applicant-records [this applicants]
+    (doseq [a (vals applicants)]
+      (persist/put-doc! (persist/ctx st :applicant :applicant-id) a))
+    this)
+  (with-credential-records [this credentials]
+    (doseq [c (vals credentials)]
+      (persist/put-doc! (persist/ctx st :credential :seller/id) c))
+    this))
+
+(defn kotobase-store
+  "A durable store over a HOST-INJECTED database API.
+
+  `marketplace.persist/store` throws when `db-api` is missing or
+  partial, per the policy's
+  `:policy/fail-closed-without-host-injection` — this actor cannot come
+  up durable-looking but writing to nothing.
+
+  `seq-fn` is the host's because a count would be a read-modify-write
+  two concurrent appends collide on. `marketplace.edge/ordinal-fn`
+  supplies one that survives concurrent isolates."
+  [{:keys [db-api seq-fn]}]
+  (->KotobaseStore (persist/store {:db-api db-api :actor "onboarding"})
+                   (or seq-fn (let [n (atom 0)] #(swap! n inc)))))
