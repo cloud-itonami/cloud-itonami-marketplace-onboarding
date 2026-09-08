@@ -65,7 +65,7 @@
       may NEVER become auto-commit-eligible; `onboarding.phase` keeps
       both out of every phase's `:auto` set independently -- two layers,
       not one."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [marketplace.seller :as seller]
             [onboarding.store :as store]))
 
@@ -172,7 +172,7 @@
   "Flatten every advisor-authored field into one lower-cased blob the
   scope-exclusion scan checks."
   [proposal]
-  (str/lower-case (pr-str (select-keys proposal [:op :summary :rationale :cites :value]))))
+  (str/lower (pr-str (select-keys proposal [:op :summary :rationale :cites :value]))))
 
 (defn- scope-exclusion-violations
   "HARD, PERMANENT block, evaluated UNCONDITIONALLY on every proposal."
