@@ -91,9 +91,9 @@ party admits them to trade. ADR-2607264000 records that as the cost of
 operating in AML/sanctions jurisdictions, not an unfinished feature.
 
 ```bash
-clojure -M:dev:run   # one clean intake, one HARD hold, one human-gated credential
-clojure -M:test      # 31 tests, 115 assertions
-clojure -M:lint
+kbb -M:dev:run   # one clean intake, one HARD hold, one human-gated credential
+kbb -M:test      # 31 tests, 115 assertions
+kbb -M:lint
 ```
 
 ## Rollout phases
