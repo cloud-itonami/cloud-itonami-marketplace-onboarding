@@ -12,5 +12,5 @@
     "@ipld/dag-cbor": "^9.2.1"
   },
   "name": "cloud-itonami-marketplace-onboarding",
-  "comment": "shadow-cljs compiles src/onboarding/edge/worker.cljs -> dist/worker.js."
+  "comment": "shadow-cljs compiles src/onboarding/edge/worker.cljk -> dist/worker.js."
 }
