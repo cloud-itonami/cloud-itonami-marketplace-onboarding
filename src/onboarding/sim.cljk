@@ -1,7 +1,7 @@
 (ns onboarding.sim
   "Offline demo: drive one clean intake, one HARD evidence-floor hold, and
   one credential proposal that pauses for a human, through the REAL
-  compiled actor graph. `clojure -M:dev:run`."
+  compiled actor graph. `kbb -M:dev:run`."
   (:require [langgraph.graph :as g]
             [onboarding.operation :as operation]
             [onboarding.store :as store]))
