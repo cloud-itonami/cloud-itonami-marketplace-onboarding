@@ -1,7 +1,7 @@
 (ns onboarding.durable-store-test
   "The durable store must behave exactly as the memory one does -- the
   contract test that keeps a backend swap from being a rewrite."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [marketplace.persist :as persist]
             [onboarding.store :as store]))
 
