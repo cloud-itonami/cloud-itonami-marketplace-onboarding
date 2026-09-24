@@ -1,6 +1,6 @@
 (ns onboarding.phase-test
   (:require [clojure.set :as set]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [onboarding.governor :as governor]
             [onboarding.phase :as phase]))
 

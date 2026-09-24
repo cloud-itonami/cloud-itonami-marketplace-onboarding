@@ -1,5 +1,5 @@
 (ns onboarding.governor-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [onboarding.advisor :as advisor]
             [onboarding.governor :as governor]
             [onboarding.store :as store]))

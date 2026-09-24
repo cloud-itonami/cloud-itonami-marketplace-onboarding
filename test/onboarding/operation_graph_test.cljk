@@ -9,7 +9,7 @@
   structural claim ADR-2607264000 makes about this marketplace, namely
   that self-serve onboarding still cannot mint a seller identity without
   a named human signing it."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [onboarding.operation :as operation]
             [onboarding.store :as store]))
